@@ -1,8 +1,5 @@
 // src/data/patientsMockData.js
 
-
-
-
 export const patientsMockData = [
   {
     id: 1,

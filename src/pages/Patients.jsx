@@ -1,76 +1,111 @@
 // src/pages/Patients.jsx
 
-import { useState, useMemo } from "react";
-import { Box } from "@mui/material";
+import { useState, useMemo, useEffect } from "react";
+import { Box, Typography } from "@mui/material";
+
 import PatientsNavbar from "../components/Navbar/PatientsNavbar";
 import MobileSidebar from "../components/Navbar/MobileSidebar";
 import PatientsTable from "../components/Table/PatientsTable";
 import PatientFormModal from "../components/Modal/PatientFormModal";
-import { patientsMockData, TOTAL_PATIENTS } from "../data/patientsMockData";
+import App from "../data/app";
+
+import {
+  fetchPatients,
+  createPatient,
+  updatePatient,
+  deletePatient,
+} from "../data/patientsMockData.js";
 
 const Patients = () => {
-  // STATE MANAGEMENT
+  // ==============================
+  // STATE
+  // ==============================
+  const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [patients, setPatients] = useState(patientsMockData);
 
-  // Modal states
+  // Modal
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState("add"); // 'add' or 'edit'
+  const [modalMode, setModalMode] = useState("add"); // add | edit
   const [selectedPatient, setSelectedPatient] = useState(null);
 
-  // Mobile sidebar state
+  // Mobile sidebar
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // SEARCH FUNCTIONALITY
-  const filteredPatients = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return patients;
+  // ==============================
+  // API FETCH
+  // ==============================
+  const loadPatients = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await fetchPatients();
+      setPatients(data);
+    } catch (err) {
+      setError(err.message || "Failed to load patients");
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    loadPatients();
+  }, []);
+
+  // ==============================
+  // SEARCH
+  // ==============================
+  const filteredPatients = useMemo(() => {
+    if (!searchTerm.trim()) return patients;
 
     const searchLower = searchTerm.toLowerCase();
     const normalizedSearch = searchTerm.replace(/\D/g, "");
+
     return patients.filter(
-      (patient) =>
-        patient.name.toLowerCase().includes(searchLower) ||
-        patient.phone.replace(/\D/g, "").includes(normalizedSearch) ||
-        patient.provider.toLowerCase().includes(searchLower) ||
-        (patient.email || "").toLowerCase().includes(searchLower)
+      (p) =>
+        p.name.toLowerCase().includes(searchLower) ||
+        p.provider.toLowerCase().includes(searchLower) ||
+        (p.email || "").toLowerCase().includes(searchLower) ||
+        p.phone.replace(/\D/g, "").includes(normalizedSearch)
     );
   }, [searchTerm, patients]);
 
-  // PAGINATION LOGIC
+  // ==============================
+  // PAGINATION (client-side for now)
+  // ==============================
   const paginatedPatients = useMemo(() => {
-    const startIndex = page * rowsPerPage;
-    return filteredPatients.slice(startIndex, startIndex + rowsPerPage);
+    const start = page * rowsPerPage;
+    return filteredPatients.slice(start, start + rowsPerPage);
   }, [filteredPatients, page, rowsPerPage]);
 
-  // EVENT HANDLERS
-  const handleSearchChange = (event) => {
-    setSearchTerm(event.target.value);
+  // ==============================
+  // HANDLERS
+  // ==============================
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
     setPage(0);
   };
 
-  const handlePageChange = (event, newPage) => {
+  const handlePageChange = (_, newPage) => {
     setPage(newPage);
   };
 
-  const handleRowsPerPageChange = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
+  const handleRowsPerPageChange = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
     setPage(0);
   };
 
   const handleRefresh = () => {
-    console.log("Refreshing patient data...");
     setSearchTerm("");
     setPage(0);
-    // In real app: refetch from API
+    loadPatients();
   };
 
   const handleDownload = () => {
-    console.log("Downloading patient data...");
-
     const headers = [
       "PatID",
       "Name",
@@ -80,6 +115,7 @@ const Patients = () => {
       "Device Added",
       "First Reading",
     ];
+
     const csvContent = [
       headers.join(","),
       ...patients.map(
@@ -96,7 +132,9 @@ const Patients = () => {
     link.click();
   };
 
-  // MODAL HANDLERS
+  // ==============================
+  // MODAL
+  // ==============================
   const handleAddPatient = () => {
     setModalMode("add");
     setSelectedPatient(null);
@@ -104,29 +142,21 @@ const Patients = () => {
   };
 
   const handleEditPatient = (patient) => {
-    console.log("Editing patient:", patient);
     setModalMode("edit");
     setSelectedPatient(patient);
     setModalOpen(true);
   };
 
-  const handleViewPatient = (patient) => {
-    console.log("Viewing patient:", patient);
-    // Could open a different modal or navigate to detail page
+  const handleDeletePatient = async (patient) => {
+    if (!window.confirm(`Delete ${patient.name}?`)) return;
+
+    await deletePatient(patient.id);
+    setPatients((prev) => prev.filter((p) => p.id !== patient.id));
   };
 
-  const handleDeletePatient = (patient) => {
-    console.log("Deleting patient:", patient);
-    if (window.confirm(`Are you sure you want to delete ${patient.name}?`)) {
-      setPatients(patients.filter((p) => p.id !== patient.id));
-    }
-  };
-
-  const handleSavePatient = (formData) => {
+  const handleSavePatient = async (formData) => {
     if (modalMode === "add") {
-      // Add new patient
-      const newPatient = {
-        id: patients.length + 1,
+      const payload = {
         patId: Math.floor(Math.random() * 1000),
         name: `${formData.lastName}, ${formData.firstName}`,
         phone: formData.mobile || formData.phone,
@@ -137,41 +167,52 @@ const Patients = () => {
         rpmCommTime: "0s",
         readingsCount: 0,
       };
-      setPatients([...patients, newPatient]);
-      console.log("Added new patient:", newPatient);
-    } else {
-      // Update existing patient
-      setPatients(
-        patients.map((p) =>
-          p.id === selectedPatient.id
-            ? {
-                ...p,
-                name: `${formData.lastName}, ${formData.firstName}`,
-                phone: formData.mobile || formData.phone,
-                email: formData.email,
-                provider: formData.provider,
-              }
-            : p
-        )
-      );
-      console.log("Updated patient:", selectedPatient.id);
-    }
-  };
 
-  const handleModalClose = () => {
+      const saved = await createPatient(payload);
+      setPatients((prev) => [...prev, saved]);
+    } else {
+      const updated = {
+        ...selectedPatient,
+        name: `${formData.lastName}, ${formData.firstName}`,
+        phone: formData.mobile || formData.phone,
+        email: formData.email,
+        provider: formData.provider,
+      };
+
+      await updatePatient(selectedPatient.id, updated);
+      setPatients((prev) =>
+        prev.map((p) => (p.id === selectedPatient.id ? updated : p))
+      );
+    }
+
     setModalOpen(false);
     setSelectedPatient(null);
   };
 
-  // MOBILE SIDEBAR HANDLERS
-  const handleMenuClick = () => {
-    setSidebarOpen(true);
-  };
+  // ==============================
+  // MOBILE SIDEBAR
+  // ==============================
+  const handleMenuClick = () => setSidebarOpen(true);
+  const handleSidebarClose = () => setSidebarOpen(false);
 
-  const handleSidebarClose = () => {
-    setSidebarOpen(false);
-  };
+  // ==============================
+  // RENDER STATES
+  // ==============================
+  if (loading) {
+    return <Box p={3}>Loading patients…</Box>;
+  }
 
+  if (error) {
+    return (
+      <Box p={3}>
+        <Typography color="error">{error}</Typography>
+      </Box>
+    );
+  }
+
+  // ==============================
+  // UI
+  // ==============================
   return (
     <Box
       sx={{
@@ -181,7 +222,6 @@ const Patients = () => {
         backgroundColor: "#f5f5f5",
       }}
     >
-      {/* NAVBAR */}
       <PatientsNavbar
         searchTerm={searchTerm}
         onSearchChange={handleSearchChange}
@@ -191,7 +231,6 @@ const Patients = () => {
         onMenuClick={handleMenuClick}
       />
 
-      {/* MOBILE SIDEBAR */}
       <MobileSidebar
         open={sidebarOpen}
         onClose={handleSidebarClose}
@@ -202,14 +241,7 @@ const Patients = () => {
         onDownload={handleDownload}
       />
 
-      {/* TABLE */}
-      <Box
-        sx={{
-          flexGrow: 1,
-          padding: { xs: 1, sm: 2, md: 3 },
-          overflow: "auto",
-        }}
-      >
+      <Box sx={{ flexGrow: 1, p: { xs: 1, sm: 2, md: 3 } }}>
         <PatientsTable
           patients={paginatedPatients}
           page={page}
@@ -217,16 +249,14 @@ const Patients = () => {
           totalCount={filteredPatients.length}
           onPageChange={handlePageChange}
           onRowsPerPageChange={handleRowsPerPageChange}
-          onViewPatient={handleViewPatient}
           onEditPatient={handleEditPatient}
           onDeletePatient={handleDeletePatient}
         />
       </Box>
 
-      {/* PATIENT FORM MODAL */}
       <PatientFormModal
         open={modalOpen}
-        onClose={handleModalClose}
+        onClose={() => setModalOpen(false)}
         patient={selectedPatient}
         onSave={handleSavePatient}
         mode={modalMode}
